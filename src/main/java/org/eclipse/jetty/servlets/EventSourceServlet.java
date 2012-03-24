@@ -17,6 +17,7 @@
 package org.eclipse.jetty.servlets;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.util.Enumeration;
 import java.util.concurrent.Executors;
@@ -43,9 +44,9 @@ import org.eclipse.jetty.continuation.ContinuationSupport;
  */
 public abstract class EventSourceServlet extends HttpServlet
 {
-    private static final byte[] EVENT_FIELD = "event: ".getBytes(Charset.forName("UTF-8"));
-    private static final byte[] DATA_FIELD = "data: ".getBytes(Charset.forName("UTF-8"));
-    private static final byte[] COMMENT_FIELD = ": ".getBytes(Charset.forName("UTF-8"));
+    private static final String EVENT_FIELD = "event: ";
+    private static final String DATA_FIELD = "data: ";
+    private static final String COMMENT_FIELD = ": ";
 
     private ScheduledExecutorService scheduler;
     private int heartBeatPeriod = 10;
@@ -105,6 +106,9 @@ public abstract class EventSourceServlet extends HttpServlet
     {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("text/event-stream");
+        // Section 7 and 8 of the EventSource specification require that the response is always utf-8
+        // Section 5.4 of the servlet specification require the default response encoding to be ISO-8859-1
+        response.setCharacterEncoding("UTF-8");
         // By adding this header, and not closing the connection,
         // we disable HTTP chunking, and we can use write()+flush()
         // to send data in the text/event-stream protocol
@@ -121,7 +125,7 @@ public abstract class EventSourceServlet extends HttpServlet
     {
         private final EventSource eventSource;
         private final Continuation continuation;
-        private final ServletOutputStream output;
+        private final PrintWriter output;
         private Future<?> heartBeat;
         private boolean closed;
 
@@ -129,7 +133,7 @@ public abstract class EventSourceServlet extends HttpServlet
         {
             this.eventSource = eventSource;
             this.continuation = continuation;
-            this.output = continuation.getServletResponse().getOutputStream();
+            this.output = continuation.getServletResponse().getWriter();
         }
 
         public void data(String data) throws IOException

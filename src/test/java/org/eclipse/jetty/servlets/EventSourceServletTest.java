@@ -93,7 +93,7 @@ public class EventSourceServletTest
 
         // Read and discard the HTTP response
         InputStream input = socket.getInputStream();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, "UTF-8"));
         String line = reader.readLine();
         while (line != null)
         {
@@ -107,7 +107,7 @@ public class EventSourceServletTest
         EventSource.Emitter emitter = emitterRef.get();
         Assert.assertNotNull(emitter);
 
-        String data = "foo";
+        String data = "fo\u00F6";
         emitter.data(data);
 
         line = reader.readLine();
