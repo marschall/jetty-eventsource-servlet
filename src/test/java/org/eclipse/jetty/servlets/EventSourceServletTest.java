@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
 import javax.servlet.http.HttpServletRequest;
 
 import org.eclipse.jetty.server.Connector;
@@ -107,20 +108,23 @@ public class EventSourceServletTest
         EventSource.Emitter emitter = emitterRef.get();
         Assert.assertNotNull(emitter);
 
-        String data = "foo";
-        emitter.data(data);
+        String data1 = "foo";
+        String data2 = "bar";
+        emitter.data(data1 + "\r\n" + data2);
 
         line = reader.readLine();
-        String received = "";
+        StringBuilder received = new StringBuilder();
         while (line != null)
         {
-            received += line;
             if (line.length() == 0)
                 break;
+            if (!(received.length() == 0))
+                received.append("\r\n");
+            received.append(line);
             line = reader.readLine();
         }
 
-        Assert.assertEquals("data: " + data, received);
+        Assert.assertEquals("data: " + data1 + "\r\ndata: " + data2, received.toString());
 
         socket.close();
         Assert.assertTrue(closeLatch.await(heartBeatPeriod * 2, TimeUnit.SECONDS));

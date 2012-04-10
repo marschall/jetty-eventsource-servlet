@@ -17,12 +17,15 @@
 package org.eclipse.jetty.servlets;
 
 import java.io.IOException;
+import java.io.LineNumberReader;
+import java.io.StringReader;
 import java.nio.charset.Charset;
 import java.util.Enumeration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServlet;
@@ -139,9 +142,16 @@ public abstract class EventSourceServlet extends HttpServlet
         {
             synchronized (this)
             {
-                output.write(DATA_FIELD);
-                output.write(data.getBytes(UTF_8.name()));
-                output.write(CRLF);
+                // every line in the response has to start with "data:"
+                // otherwise it is interpreted as a filed name with an empty value
+                LineNumberReader lineNumberReader = new LineNumberReader(new StringReader(data));
+                String line = lineNumberReader.readLine();
+                while (line != null) {
+                    output.write(DATA_FIELD);
+                    output.write(line.getBytes(UTF_8.name()));
+                    output.write(CRLF);
+                    line = lineNumberReader.readLine();
+                }
                 flush();
             }
         }
