@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.servlet.http.HttpServletRequest;
 
@@ -50,6 +51,7 @@ public class EventSourceServletTest
     public void testBasicFunctionality() throws Exception
     {
         final AtomicReference<EventSource.Emitter> emitterRef = new AtomicReference<EventSource.Emitter>();
+        final AtomicBoolean onResumeEncounteredRef = new AtomicBoolean(false);
         final CountDownLatch emitterLatch = new CountDownLatch(1);
         final CountDownLatch closeLatch = new CountDownLatch(1);
         class S extends EventSourceServlet
@@ -63,6 +65,11 @@ public class EventSourceServletTest
                     {
                         emitterRef.set(emitter);
                         emitterLatch.countDown();
+                    }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
+                        onResumeEncounteredRef.set(true);
                     }
 
                     public void onClose()
@@ -87,6 +94,8 @@ public class EventSourceServletTest
         EventSource.Emitter emitter = emitterRef.get();
         Assert.assertNotNull(emitter);
 
+        Assert.assertFalse(onResumeEncounteredRef.get());
+        
         String data = "foo";
         emitter.data(data);
 
@@ -122,6 +131,10 @@ public class EventSourceServletTest
                     {
                         emitterRef.set(emitter);
                         emitterLatch.countDown();
+                    }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
                     }
 
                     public void onClose()
@@ -181,6 +194,10 @@ public class EventSourceServletTest
                     {
                         emitter.data(data);
                     }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
+                    }
 
                     public void onClose()
                     {
@@ -230,6 +247,10 @@ public class EventSourceServletTest
                     {
                         emitter.data(data);
                     }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
+                    }
 
                     public void onClose()
                     {
@@ -275,6 +296,10 @@ public class EventSourceServletTest
                     {
                         emitter.event(name, data);
                     }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
+                    }
 
                     public void onClose()
                     {
@@ -299,19 +324,76 @@ public class EventSourceServletTest
 
         socket.close();
     }
+    
 
-    private void writeHTTPRequest(Socket socket, String servletPath) throws IOException
+    @Test
+    public void testLastEventId() throws Exception
+    {
+        final String lastEventId = "1-2-3-4";
+        class S extends EventSourceServlet
+        {
+            @Override
+            protected EventSource newEventSource(HttpServletRequest request)
+            {
+                return new EventSource()
+                {
+                    public void onOpen(Emitter emitter) throws IOException
+                    {
+                        emitter.data("failed");
+                    }
+                    
+                    public void onResume(Emitter emitter, String lastEventId) throws IOException
+                    {
+                        emitter.id(lastEventId);
+                        emitter.data(lastEventId);
+                    }
+
+                    public void onClose()
+                    {
+                    }
+                };
+            }
+        }
+
+        String servletPath = "/eventsource";
+        context.addServlet(new ServletHolder(new S()), servletPath);
+
+        Socket socket = new Socket("localhost", connector.getLocalPort());
+        writeHTTPRequest(socket, servletPath, lastEventId);
+        BufferedReader reader = readAndDiscardHTTPResponse(socket);
+
+        String line1 = reader.readLine();
+        Assert.assertEquals("id: " + lastEventId, line1);
+        String line2 = reader.readLine();
+        Assert.assertEquals("data: " + lastEventId, line2);
+        String line3 = reader.readLine();
+        Assert.assertEquals(0, line3.length());
+
+        socket.close();
+    }
+
+    private void writeHTTPRequest(Socket socket, String servletPath, String lastEventId) throws IOException
     {
         int serverPort = socket.getPort();
         OutputStream output = socket.getOutputStream();
-
+        
         String handshake = "";
         handshake += "GET " + context.getContextPath() + servletPath + " HTTP/1.1\r\n";
         handshake += "Host: localhost:" + serverPort + "\r\n";
         handshake += "Accept: text/event-stream\r\n";
+        if (lastEventId != null)
+        {
+            handshake += "Last-Event-ID: " + lastEventId + "\r\n";
+        }
         handshake += "\r\n";
         output.write(handshake.getBytes("UTF-8"));
         output.flush();
+        
+    }
+    
+    private void writeHTTPRequest(Socket socket, String servletPath) throws IOException
+    {
+        writeHTTPRequest(socket, servletPath, null);
     }
 
     private BufferedReader readAndDiscardHTTPResponse(Socket socket) throws IOException

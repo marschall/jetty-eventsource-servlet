@@ -46,8 +46,6 @@ import org.eclipse.jetty.continuation.ContinuationSupport;
  *     <li><code>heartBeatPeriod</code>, that specifies the heartbeat period, in seconds, used to check
  *     whether the connection has been closed by the client; defaults to 10 seconds.</li>
  * </ul>
- *
- * <p>NOTE: there is currently no support for <code>last-event-id</code>.</p>
  */
 public abstract class EventSourceServlet extends HttpServlet
 {
@@ -55,6 +53,7 @@ public abstract class EventSourceServlet extends HttpServlet
     private static final byte[] CRLF = new byte[]{'\r', '\n'};
     private static final byte[] EVENT_FIELD;
     private static final byte[] DATA_FIELD;
+    private static final byte[] ID_FIELD;
     private static final byte[] COMMENT_FIELD;
     static
     {
@@ -62,6 +61,7 @@ public abstract class EventSourceServlet extends HttpServlet
         {
             EVENT_FIELD = "event: ".getBytes(UTF_8.name());
             DATA_FIELD = "data: ".getBytes(UTF_8.name());
+            ID_FIELD = "id: ".getBytes(UTF_8.name());
             COMMENT_FIELD = ": ".getBytes(UTF_8.name());
         }
         catch (UnsupportedEncodingException x)
@@ -92,6 +92,37 @@ public abstract class EventSourceServlet extends HttpServlet
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
+        if (acceptsEventStream(request))
+        {
+            EventSource eventSource = newEventSource(request);
+            if (eventSource == null)
+            {
+                response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            }
+            else
+            {
+                respond(request, response);
+                Continuation continuation = ContinuationSupport.getContinuation(request);
+                // Infinite timeout because the continuation is never resumed,
+                // but only completed on close
+                continuation.setTimeout(0L);
+                continuation.suspend(response);
+                EventSourceEmitter emitter = new EventSourceEmitter(eventSource, continuation);
+                emitter.scheduleHeartBeat();
+                String lastEventId = request.getHeader("Last-Event-ID");
+                if (lastEventId != null)
+                {
+                    resume(eventSource, emitter, lastEventId);
+                } else {
+                    open(eventSource, emitter);
+                }
+            }
+            return;
+        }
+        super.doGet(request, response);
+    }
+    
+    private boolean acceptsEventStream(HttpServletRequest request) {
         @SuppressWarnings("unchecked")
         Enumeration<String> acceptValues = request.getHeaders("Accept");
         while (acceptValues.hasMoreElements())
@@ -99,27 +130,10 @@ public abstract class EventSourceServlet extends HttpServlet
             String accept = acceptValues.nextElement();
             if (accept.equals("text/event-stream"))
             {
-                EventSource eventSource = newEventSource(request);
-                if (eventSource == null)
-                {
-                    response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-                }
-                else
-                {
-                    respond(request, response);
-                    Continuation continuation = ContinuationSupport.getContinuation(request);
-                    // Infinite timeout because the continuation is never resumed,
-                    // but only completed on close
-                    continuation.setTimeout(0L);
-                    continuation.suspend(response);
-                    EventSourceEmitter emitter = new EventSourceEmitter(eventSource, continuation);
-                    emitter.scheduleHeartBeat();
-                    open(eventSource, emitter);
-                }
-                return;
+                return true;
             }
         }
-        super.doGet(request, response);
+        return false;
     }
 
     protected abstract EventSource newEventSource(HttpServletRequest request);
@@ -134,6 +148,11 @@ public abstract class EventSourceServlet extends HttpServlet
         // to send data in the text/event-stream protocol
         response.addHeader("Connection", "close");
         response.flushBuffer();
+    }
+    
+    protected void resume(EventSource eventSource, EventSource.Emitter emitter, String lastEventId) throws IOException
+    {
+        eventSource.onResume(emitter, lastEventId);
     }
 
     protected void open(EventSource eventSource, EventSource.Emitter emitter) throws IOException
@@ -193,6 +212,16 @@ public abstract class EventSourceServlet extends HttpServlet
                 output.write(CRLF);
                 output.write(CRLF);
                 flush();
+            }
+        }
+        
+        public void id(String id) throws IOException
+        {
+            synchronized (this)
+            {
+                output.write(ID_FIELD);
+                output.write(id.getBytes(UTF_8.name()));
+                output.write(CRLF);
             }
         }
 

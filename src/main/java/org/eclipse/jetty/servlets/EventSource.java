@@ -38,6 +38,26 @@ public interface EventSource
      * @throws IOException if the implementation of the method throws such exception
      */
     public void onOpen(Emitter emitter) throws IOException;
+    
+    /**
+     * <p>Callback method invoked when an event source connection is resumed
+     * by the client after the client lost the connection to the server.</p>
+     * 
+     * <p>Servers who don't care about the last event id can implement this method in
+     * terms of {@link #onOpen(Emitter)}.
+     * <pre><code>
+     *  public void onResume(Emitter emitter, String lastEventId) throws IOException
+     *  {
+     *      onOpen(emitter);
+     *  }
+     *  </code></pre>
+     *
+     * @see Emitter#id(String)
+     * @param emitter the {@link Emitter} instance that allows to operate on the connection
+     * @param lastEventId the last event id the client received
+     * @throws IOException if the implementation of the method throws such exception
+     */
+    public void onResume(Emitter emitter, String lastEventId) throws IOException;
 
     /**
      * <p>Callback method invoked when an event source connection is closed.</p>
@@ -97,10 +117,25 @@ public interface EventSource
          * @throws IOException if an I/O failure occurred
          */
         public void comment(String comment) throws IOException;
+        
+        /**
+         * <p>Sends an id to the client.</p>
+         * <p>When invoked as: <code>comment("id")</code>, the client will receive the line:</p>
+         * <pre>
+         * id: foo
+         * </pre>
+         * <p>This method has to be invoked before  {@link #data(String)} or {@link #event(String, String)}.</p>
+         *
+         * @see EventSource#onResume(Emitter, String)
+         * @param id the id to send
+         * @throws IOException if an I/O failure occurred
+         */
+        public void id(String id) throws IOException;
 
         /**
          * <p>Closes this event source connection.</p>
          */
         public void close();
     }
+
 }
